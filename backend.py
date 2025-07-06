@@ -1,4 +1,7 @@
 from google.adk.cli.fast_api import get_fast_api_app
+from dotenv import load_dotenv
+
+load_dotenv()
 
 app = get_fast_api_app(agents_dir="agents", web=True)
 

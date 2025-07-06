@@ -13,8 +13,10 @@ Create a virtual environment with `uv` and install dependencies:
 
 ```bash
 uv venv
-uv pip install --system google-adk fastapi "uvicorn[standard]"
+uv pip install --system google-adk fastapi "uvicorn[standard]" litellm python-dotenv
 ```
+
+Create a `.env` file based on `.env.example` and set your `OPENAI_API_KEY`.
 
 Run the server:
 
