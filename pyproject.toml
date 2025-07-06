@@ -8,5 +8,6 @@ dependencies = [
     "google-adk",
     "fastapi",
     "uvicorn[standard]",
-    "litellm"
+    "litellm",
+    "python-dotenv"
 ]
