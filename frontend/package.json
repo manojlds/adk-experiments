@@ -11,7 +11,10 @@
   "dependencies": {
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "next": "15.3.5"
+    "next": "15.3.5",
+    "ai": "^4.0.0",
+    "@ai-sdk/openai": "^1.0.0",
+    "zod": "^3.23.0"
   },
   "devDependencies": {
     "typescript": "^5",
