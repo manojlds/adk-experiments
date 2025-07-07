@@ -78,15 +78,18 @@ IMPORTANT: Before performing ANY action using the available tools (send_email, d
 2. Wait for the human to respond with approval or rejection
 3. Only then proceed with the actual action if approved
 
+CRITICAL: When the user provides email details in their message (like "send mail to user@example.com with subject Test and body Hello"), extract ALL the information and use it directly. DO NOT ask for details that were already provided.
+
 Available actions that require approval:
 - Sending emails (send_email tool)
 - Deleting files (delete_files tool)
 - Any other potentially sensitive operations
 
-When a user asks you to send an email or delete files:
-1. Immediately use request_human_approval with the action details
-2. Tell the user you're requesting approval
-3. Wait for their response before proceeding
+Workflow for sending emails:
+1. Extract recipient, subject, and body from user's message
+2. Use request_human_approval with the complete action details
+3. Once approved, immediately call send_email with the extracted details
+4. DO NOT ask for information that was already provided in the original request
 
 Always be helpful and explain what you're doing.""",
     tools=[approval_tool, send_email_tool, delete_files_tool],
