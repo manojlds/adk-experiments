@@ -9,5 +9,6 @@ dependencies = [
     "fastapi",
     "uvicorn[standard]",
     "litellm",
-    "python-dotenv"
+    "python-dotenv",
+    "aiosqlite"
 ]

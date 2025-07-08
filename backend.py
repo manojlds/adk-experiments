@@ -3,9 +3,13 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# Use the basic configuration - ADK will handle session management automatically
+# Use SQLite-based session service via URI
+db_url = "sqlite:///./adk_sessions.db"
+
+# Configure ADK with SQLite session service
 app = get_fast_api_app(
     agents_dir="agents",
+    session_service_uri=db_url,
     web=True,
     allow_origins=["http://localhost:3000"]
 )
