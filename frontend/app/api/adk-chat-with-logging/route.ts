@@ -1,12 +1,42 @@
 import { NextRequest, NextResponse } from 'next/server'
 
+// Simple pause/resume logging for demonstration
+function logLongRunningToolEvent(event: any, phase: string) {
+  const timestamp = new Date().toISOString()
+  
+  if (event.longRunningToolIds && event.longRunningToolIds.length > 0) {
+    console.log(`🔄 [${timestamp}] AGENT PAUSED - Long-running tool started: ${event.longRunningToolIds[0]} (${phase})`)
+  }
+  
+  if (event.content?.parts) {
+    for (const part of event.content.parts) {
+      if (part.functionResponse?.name === 'request_human_approval') {
+        const status = part.functionResponse.response?.status
+        const toolId = part.functionResponse.id
+        
+        if (status === 'pending') {
+          console.log(`⏸️  [${timestamp}] AGENT WAITING - Tool ${toolId} pending approval (${phase})`)
+        } else if (status === 'approved') {
+          console.log(`▶️  [${timestamp}] AGENT RESUMED - Tool ${toolId} approved (${phase})`)
+        } else if (status === 'rejected') {
+          console.log(`▶️  [${timestamp}] AGENT RESUMED - Tool ${toolId} rejected (${phase})`)
+        }
+      }
+      
+      if (part.functionCall && part.functionCall.name !== 'request_human_approval') {
+        console.log(`🚀 [${timestamp}] AGENT EXECUTING - Function: ${part.functionCall.name} (${phase})`)
+      }
+    }
+  }
+}
+
 export async function POST(req: NextRequest) {
   try {
-    const { messages, resumeWithFunctionResponse, sessionId: providedSessionId } = await req.json()
+    const { messages, resumeWithFunctionResponse } = await req.json()
     
     let newMessage
     let lastMessage
-    let sessionId = providedSessionId
+    let phase = 'INITIAL_REQUEST'
     
     if (resumeWithFunctionResponse) {
       // Resuming with function response - send function_response to ADK
@@ -26,6 +56,9 @@ export async function POST(req: NextRequest) {
         }]
       }
       lastMessage = { content: `Function response: ${resumeWithFunctionResponse.approved ? 'approved' : 'rejected'}` }
+      phase = 'RESUME_AFTER_APPROVAL'
+      
+      console.log(`🔄 [${new Date().toISOString()}] RESUMING AGENT - Tool ${resumeWithFunctionResponse.toolCallId} ${resumeWithFunctionResponse.approved ? 'APPROVED' : 'REJECTED'}`)
     } else {
       // Normal message flow
       lastMessage = messages[messages.length - 1]
@@ -36,22 +69,22 @@ export async function POST(req: NextRequest) {
         role: 'user',
         parts: [{ text: lastMessage.content }]
       }
+      phase = 'INITIAL_REQUEST'
     }
 
-    // Create session only if not provided
-    if (!sessionId) {
-      try {
-        const sessionResponse = await fetch('http://localhost:8000/apps/chat/users/user1/sessions', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({}),
-        })
-        const sessionData = await sessionResponse.json()
-        sessionId = sessionData.id
-      } catch (error) {
-        console.error('Failed to create session:', error)
-        throw new Error('Failed to create session')
-      }
+    // Create session
+    let sessionId = ''
+    try {
+      const sessionResponse = await fetch('http://localhost:8000/apps/chat/users/user1/sessions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      })
+      const sessionData = await sessionResponse.json()
+      sessionId = sessionData.id
+    } catch (error) {
+      console.error('Failed to create session:', error)
+      throw new Error('Failed to create session')
     }
 
     // Send to ADK backend
@@ -73,7 +106,12 @@ export async function POST(req: NextRequest) {
     }
 
     const events = await response.json()
-    console.log('ADK events:', events)
+    console.log(`📊 [${new Date().toISOString()}] Received ${events.length} events from ADK (${phase})`)
+
+    // Log each event for pause/resume detection
+    events.forEach((event: any, index: number) => {
+      logLongRunningToolEvent(event, `${phase}_EVENT_${index}`)
+    })
 
     // Process response for approval requests
     let approvalRequest = null
@@ -89,10 +127,10 @@ export async function POST(req: NextRequest) {
               approvalRequest = {
                 action: approvalData.action,
                 details: approvalData.details,
-                ticketId: part.functionResponse.id, // Use function call ID, not ticket_id
-                message: approvalData.message,
-                internalTicketId: approvalData.ticket_id // Keep ticket_id for reference
+                ticketId: approvalData.ticket_id,
+                message: approvalData.message
               }
+              console.log(`🔔 [${new Date().toISOString()}] APPROVAL REQUEST - Action: ${approvalData.action}`)
             }
           }
         }
@@ -135,15 +173,14 @@ export async function POST(req: NextRequest) {
               },
               result: {
                 ...approvalRequest,
-                originalMessage: lastMessage.content, // Pass through original user message
-                sessionId: sessionId // Include session ID for continuation
+                originalMessage: lastMessage.content // Pass through original user message
               },
             })
             controller.enqueue(encoder.encode(`data: ${toolData}\n\n`))
           }
 
-          // End stream with session info
-          controller.enqueue(encoder.encode(`data: {"type": "done", "sessionId": "${sessionId}"}\n\n`))
+          // End stream
+          controller.enqueue(encoder.encode(`data: {"type": "done"}\n\n`))
           controller.close()
         } catch (error) {
           console.error('Streaming error:', error)

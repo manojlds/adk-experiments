@@ -29,6 +29,7 @@ export default function Home() {
   const [isLoading, setIsLoading] = useState(false)
   const [streamingContent, setStreamingContent] = useState('')
   const [pendingApprovals, setPendingApprovals] = useState<Map<string, ApprovalRequest>>(new Map())
+  const [currentSessionId, setCurrentSessionId] = useState<string | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
   const scrollToBottom = () => {
@@ -59,7 +60,10 @@ export default function Home() {
       const response = await fetch('/api/adk-chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages: [...messages, userMessage] }),
+        body: JSON.stringify({ 
+          messages: [...messages, userMessage],
+          sessionId: currentSessionId 
+        }),
       })
 
       if (!response.ok) {
@@ -98,10 +102,16 @@ export default function Home() {
                   
                   // Handle approval requests
                   if (data.toolName === 'request_approval') {
-                    setPendingApprovals(prev => new Map(prev.set(data.toolCallId, data.result)))
+                    setPendingApprovals(prev => new Map(prev.set(data.toolCallId, {
+                      ...data.result,
+                      sessionId: data.result.sessionId || currentSessionId
+                    })))
                   }
                 } else if (data.type === 'done') {
-                  // Finalize the message
+                  // Finalize the message and capture session ID
+                  if (data.sessionId && !currentSessionId) {
+                    setCurrentSessionId(data.sessionId)
+                  }
                   const assistantMessage: Message = {
                     id: (Date.now() + 1).toString(),
                     role: 'assistant',
@@ -154,6 +164,7 @@ export default function Home() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           messages: messages, // Current conversation context
+          sessionId: currentSessionId, // Use existing session
           resumeWithFunctionResponse: {
             toolCallId: toolCallId,
             approved: approved,
@@ -199,10 +210,16 @@ export default function Home() {
                   
                   // Handle approval requests
                   if (data.toolName === 'request_approval') {
-                    setPendingApprovals(prev => new Map(prev.set(data.toolCallId, data.result)))
+                    setPendingApprovals(prev => new Map(prev.set(data.toolCallId, {
+                      ...data.result,
+                      sessionId: data.result.sessionId || currentSessionId
+                    })))
                   }
                 } else if (data.type === 'done') {
-                  // Finalize the message
+                  // Finalize the message and capture session ID
+                  if (data.sessionId && !currentSessionId) {
+                    setCurrentSessionId(data.sessionId)
+                  }
                   const assistantMessage: Message = {
                     id: (Date.now() + 1).toString(),
                     role: 'assistant',
