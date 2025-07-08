@@ -2,12 +2,39 @@ import { NextRequest, NextResponse } from 'next/server'
 
 export async function POST(req: NextRequest) {
   try {
-    const { messages } = await req.json()
+    const { messages, resumeWithFunctionResponse } = await req.json()
     
-    // Get the last user message
-    const lastMessage = messages[messages.length - 1]
-    if (!lastMessage || lastMessage.role !== 'user') {
-      throw new Error('No user message found')
+    let newMessage
+    let lastMessage
+    
+    if (resumeWithFunctionResponse) {
+      // Resuming with function response - send function_response to ADK
+      newMessage = {
+        role: 'user',
+        parts: [{
+          function_response: {
+            id: resumeWithFunctionResponse.toolCallId,
+            name: 'request_human_approval',
+            response: {
+              status: resumeWithFunctionResponse.approved ? 'approved' : 'rejected',
+              action: resumeWithFunctionResponse.action,
+              details: resumeWithFunctionResponse.details,
+              approved: resumeWithFunctionResponse.approved
+            }
+          }
+        }]
+      }
+      lastMessage = { content: `Function response: ${resumeWithFunctionResponse.approved ? 'approved' : 'rejected'}` }
+    } else {
+      // Normal message flow
+      lastMessage = messages[messages.length - 1]
+      if (!lastMessage || lastMessage.role !== 'user') {
+        throw new Error('No user message found')
+      }
+      newMessage = {
+        role: 'user',
+        parts: [{ text: lastMessage.content }]
+      }
     }
 
     // Create session
@@ -30,10 +57,7 @@ export async function POST(req: NextRequest) {
       app_name: 'chat',
       user_id: 'user1',
       session_id: sessionId,
-      new_message: {
-        role: 'user',
-        parts: [{ text: lastMessage.content }]
-      }
+      new_message: newMessage
     }
 
     const response = await fetch('http://localhost:8000/run', {

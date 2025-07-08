@@ -144,36 +144,93 @@ export default function Home() {
       return newMap
     })
 
-    // Send approval directly to backend instead of through chat
+    setIsLoading(true)
+    setStreamingContent('')
+
+    // Send function_response to resume agent using ADK's proper pattern
     try {
-      const approvalResponse = await fetch('/api/adk-chat/approval', {
+      const response = await fetch('/api/adk-chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          toolCallId,
-          approved,
-          action: approval.action,
-          details: approval.details
+          messages: messages, // Current conversation context
+          resumeWithFunctionResponse: {
+            toolCallId: toolCallId,
+            approved: approved,
+            action: approval.action,
+            details: approval.details
+          }
         }),
       })
-      
-      if (approvalResponse.ok) {
-        // Trigger agent to continue with the approved action, including original context
-        const originalContext = approval.originalMessage ? ` Based on the original request: "${approval.originalMessage}"` : ''
-        const continueMessage = approved 
-          ? `APPROVED: Please proceed with the approved action: ${approval.action}.${originalContext} Execute the action now.` 
-          : `REJECTED: The action "${approval.action}" was rejected. Please acknowledge and offer alternatives if appropriate.`
-        
-        setInput(continueMessage)
-        
-        // Auto-submit
-        setTimeout(() => {
-          const form = document.querySelector('form')
-          if (form) form.requestSubmit()
-        }, 100)
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`)
+      }
+
+      const reader = response.body?.getReader()
+      const decoder = new TextDecoder()
+      let assistantContent = ''
+      let toolInvocations: ToolInvocation[] = []
+
+      if (reader) {
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) break
+
+          const chunk = decoder.decode(value)
+          const lines = chunk.split('\n')
+
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              try {
+                const data = JSON.parse(line.slice(6))
+                
+                if (data.type === 'text') {
+                  assistantContent += data.content
+                  setStreamingContent(assistantContent)
+                } else if (data.type === 'tool_call') {
+                  const toolInvocation: ToolInvocation = {
+                    toolCallId: data.toolCallId,
+                    toolName: data.toolName,
+                    args: data.args,
+                    result: data.result,
+                  }
+                  toolInvocations.push(toolInvocation)
+                  
+                  // Handle approval requests
+                  if (data.toolName === 'request_approval') {
+                    setPendingApprovals(prev => new Map(prev.set(data.toolCallId, data.result)))
+                  }
+                } else if (data.type === 'done') {
+                  // Finalize the message
+                  const assistantMessage: Message = {
+                    id: (Date.now() + 1).toString(),
+                    role: 'assistant',
+                    content: assistantContent,
+                    timestamp: new Date(),
+                    toolInvocations: toolInvocations.length > 0 ? toolInvocations : undefined,
+                  }
+                  setMessages(prev => [...prev, assistantMessage])
+                  setStreamingContent('')
+                }
+              } catch (e) {
+                console.warn('Failed to parse streaming data:', line)
+              }
+            }
+          }
+        }
       }
     } catch (error) {
       console.error('Failed to send approval:', error)
+      setMessages(prev => [...prev, {
+        id: (Date.now() + 1).toString(),
+        role: 'assistant',
+        content: `⚠️ Failed to process approval: ${error.message}`,
+        timestamp: new Date(),
+      }])
+    } finally {
+      setIsLoading(false)
+      setStreamingContent('')
     }
   }
 
